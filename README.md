@@ -1,6 +1,10 @@
 Pomodoro Pal extension
 ======================
 
+![Dialogue](/fougner/Pomodoro-pal/raw/master/screenshots/print1.png)
+![Coffee time!](https://github.com/fougner/Pomodoro-pal/raw/master/screenshots/print2.png)
+
+
 ## Install extension
 
 * mkdir -p ~/.local/share/gnome-shell/extensions/
