@@ -12,79 +12,154 @@ const _ = Gettext.gettext;
 
 const Schema = new Gio.Settings({ schema: 'org.gnome.shell.extensions.pomodoro' });
 const POMODORO_CONFIG = "pomodoro-config.py";
-
+const TIME_ADJUSTMENT_STEP = 0.05; /* Volume adjustment step in % */
+const TIME_DIVIDE = 1000000; /* get_monotonic_time() returns microseconds, we want seconds */
 let _pomodoroInit = false;
 
 function Indicator() {
-    this._init.apply(this, arguments);
+	this._init.apply(this, arguments);
 }
 
 Indicator.prototype = {
-    __proto__: PanelMenu.SystemStatusButton.prototype,
+	__proto__: PanelMenu.SystemStatusButton.prototype,
 
-    _init: function() {
-        PanelMenu.SystemStatusButton.prototype._init.call(this, 'text-x-generic-symbol');
+	_init: function() {
+		PanelMenu.SystemStatusButton.prototype._init.call(this, 'text-x-generic-symbol');
 
-        this._timer = new St.Label();
-        this._timeSpent = 0;
-        this._timerActive = false;
-        this._sessionCount = 0;
+		this._timer = new St.Label({ text: "[0] --:--", style_class: 'panel-label' });
+		this._timeSpent = 0;
+		this._timerActive = false;
+		this._sessionCount = 0;
 
-        this._timer.set_text("[0] --:--");
-        this.actor.add_actor(this._timer);
+		this.actor.add_actor(this._timer);
 
-        let widget = new PopupMenu.PopupSwitchMenuItem(_("Toggle timer"), false);
-        widget.connect("toggled", Lang.bind(this, this._toggleTimerState));
-        this.menu.addMenuItem(widget);
+		this._period = Schema.get_int('period');
 
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+		this._switch = new PopupMenu.PopupSwitchMenuItem(_("Toggle timer"), false);
+		this._switch.connect("toggled", Lang.bind(this, this._toggleTimerState));
+		this.menu.addMenuItem(this._switch);
 
-    },
+		this._outputSlider = new PopupMenu.PopupSliderMenuItem(0);
+        this._outputSlider.connect('value-changed', Lang.bind(this, this._sliderChanged));
+        this.menu.addMenuItem(this._outputSlider);
 
-    _toggleTimerState: function(item) {
-        if (item.state) {
-            this._timerActive = true;
-            this._startTime = Math.round(GLib.get_monotonic_time() / 1000);
-            this._refreshTimer();
-        }
-        else {
-            this._timeSpent += Math.round(GLib.get_monotonic_time()/1000) - this._startTime;
-            this._timerActive = false;
-            //this._timer.set_text("[" + this._sessionCount + "] --:--");
-        }
-    },
+		this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-    _updateTimer: function() {
-        let now = Math.round(GLib.get_monotonic_time() / 1000);
-        this._timeSpent += now - this._startTime;
-        this._startTime = now;
-    },
+        this._dbug = new PopupMenu.PopupMenuItem(_("Pomodoro Settings"));
+        
+        this._dbug.connect('activate', function(){Util.spawnCommandLine('pomodoro-config');});
+        this.menu.addMenuItem(this._dbug);
 
-    _refreshTimer: function(){
+        this._TS = new PopupMenu.PopupMenuItem(_("timespent!"));
+        this.menu.addMenuItem(this._TS);
+
+	},
+
+    _sliderChanged: function(slider, value) {
+  
+        let time = value * this._period * 60 ;
         this._updateTimer();
-        if (this._timerActive){
-            let period = Schema.get_int('period');
-            global.log('pomodoro period from Schema:' + period.toString());
-            global.log('time: ' + this._timeSpent.toString());
-            
-            let minutes = Math.floor(this._timeSpent.toString()/1000 / 60);
-
-            if (minutes < 10)
-                this._timer.set_text("[" + this._sessionCount + "] 00:0" + minutes);
-            else
-                this._timer.set_text("[" + this._sessionCount + "] 00:" + minutes);
-
-            Mainloop.timeout_add_seconds(1, Lang.bind(this, this._refreshTimer));
+        if (time < 5) {
+            this._timeSpent = 0;
+        } else {
+            this._timeSpent = time;
         }
-        return false;
-    }
+        //this._dbug.label.set_text("Slider: " + Math.floor(time) + " Pomodoro Period: " + this._period);
+        this._refreshTimer();
+    },
+
+	_toggleTimerState: function(item) {
+		this._destroyBreak();
+		if (item.state) {
+			this._startTimer();
+			this._startTime = Math.round(GLib.get_monotonic_time() /TIME_DIVIDE);
+			this._refreshTimer();
+		}
+		else {
+			this._timeSpent += Math.round(GLib.get_monotonic_time()/TIME_DIVIDE) - this._startTime;
+			this._stopTimer();
+			//this._timer.set_text("[" + this._sessionCount + "] --:--");
+		}
+	},
+
+	_updateTimer: function() {
+		let now = Math.floor(GLib.get_monotonic_time() / TIME_DIVIDE);
+		this._timeSpent += now - this._startTime;
+		this._startTime = now;
+	},
+
+	_resetTimer: function() {
+		this._timeSpent = 0;
+		this._outputSlider.setValue(0);
+	},
+
+	_stopTimer: function() {
+		this._timerActive = false;
+	},
+
+	_startTimer: function() {
+		this._timerActive = true;
+	},
+
+	_getTime: function() {
+		let res = "";
+		let min = Math.floor(this._timeSpent / 60);
+		let sec = Math.floor(this._timeSpent % 60);
+		if(min < 10) 
+			res += "0"+min;
+		else
+			res += min;
+		res += ":";
+		if(sec < 10)
+			res += "0"+sec;
+		else
+			res += sec;
+		
+		return  res;
+	},
+
+	_refreshTimer: function(){
+
+		if(this._timeSpent <= this._period*60 ) {
+			if(this._timerActive) {
+					this._updateTimer();
+					this._TS.label.set_text("Time: " + this._getTime());
+					Mainloop.timeout_add_seconds(1, Lang.bind(this, this._refreshTimer));
+			}
+			this._outputSlider.setValue(this._timeSpent / (this._period * 60));
+			let minutes = Math.floor(this._timeSpent / 60);
+			this._timer.set_text("[" + this._sessionCount + "] " + this._getTime());
+		} else {
+			this._stopTimer();
+			this._resetTimer();
+			this._switch.setToggleState(false);
+			this._showBreak(_("You're on a break!"), 5*60);
+		}
+		return false;
+	},
+
+	_showBreak: function(msg, timeout) {
+		this._destroyBreak();
+		this._breakLabel = new St.Label({ style_class: 'break-label', text: msg });
+		let monitor = global.get_primary_monitor();
+		global.stage.add_actor(this._breakLabel);
+		this._breakLabel.set_position(Math.floor (monitor.width / 2 - this._breakLabel.width / 2),
+				Math.floor(monitor.height / 2 - this._breakLabel.height / 2));
+		Mainloop.timeout_add( timeout * 1000, Lang.bind(this, this._destroyBreak) );
+	  },
+
+	_destroyBreak: function(){
+		if(this._breakLabel)  
+			this._breakLabel.destroy();
+	}
+
 };
 
 function main() {
-    if (!_pomodoroInit) {
-        Main.StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['pomodoro'] = 'pomodoro';
-        Main.Panel.STANDARD_TRAY_ICON_ORDER.unshift('pomodoro');
-        Main.Panel.STANDARD_TRAY_ICON_SHELL_IMPLEMENTATION['pomodoro'] = Indicator;
-        _pomodoroInit = true;
-    }
+	if (!_pomodoroInit) {
+		Main.StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['pomodoro'] = 'pomodoro';
+		Main.Panel.STANDARD_TRAY_ICON_ORDER.unshift('pomodoro');
+		Main.Panel.STANDARD_TRAY_ICON_SHELL_IMPLEMENTATION['pomodoro'] = Indicator;
+		_pomodoroInit = true;
+	}
 }
