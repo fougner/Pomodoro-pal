@@ -5,7 +5,7 @@ const St = imports.gi.St;
 const Main = imports.ui.main;
 const PanelMenu = imports.ui.panelMenu;
 const PopupMenu = imports.ui.popupMenu;
-const GLib = imports.gi.GLib;
+
 const Util = imports.misc.util;
 const Gettext = imports.gettext.domain('gnome-shell');
 const _ = Gettext.gettext;
@@ -26,8 +26,8 @@ Indicator.prototype = {
         PanelMenu.SystemStatusButton.prototype._init.call(this, 'text-x-generic-symbol');
 
         this._timer = new St.Label();
-        this._timeSpent = 0;
-        this._timerActive = false;
+        this._timeSpent = -1;
+        this._stopTimer = true;
         this._sessionCount = 0;
 
         this._timer.set_text("[0] --:--");
@@ -37,45 +37,38 @@ Indicator.prototype = {
         widget.connect("toggled", Lang.bind(this, this._toggleTimerState));
         this.menu.addMenuItem(widget);
 
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
+        this._refreshTimer();
     },
 
     _toggleTimerState: function(item) {
-        if (item.state) {
-            this._timerActive = true;
-            this._startTime = Math.round(GLib.get_monotonic_time() / 1000);
-            this._refreshTimer();
+        this._stopTimer = item.state;
+        if (this._stopTimer == false) {
+            this._stopTimer = true;
+            this._timer.set_text("[" + this._sessionCount + "] --:--");
         }
         else {
-            this._timeSpent += Math.round(GLib.get_monotonic_time()/1000) - this._startTime;
-            this._timerActive = false;
-            //this._timer.set_text("[" + this._sessionCount + "] --:--");
+            this._timeSpent = -1;
+            this._stopTimer = false;
+            this._refreshTimer();
         }
     },
 
-    _updateTimer: function() {
-        let now = Math.round(GLib.get_monotonic_time() / 1000);
-        this._timeSpent += now - this._startTime;
-        this._startTime = now;
-    },
+    _refreshTimer: function() {
+        if (this._stopTimer == false) {
+            this._timeSpent += 1;
+            if (this._timeSpent > 25) {
+                this._timeSpent = 0;
+                this._sessionCount += 1;
+            }
 
-    _refreshTimer: function(){
-        this._updateTimer();
-        if (this._timerActive){
-            let period = Schema.get_int('period');
-            global.log('pomodoro period from Schema:' + period.toString());
-            global.log('time: ' + this._timeSpent.toString());
-            
-            let minutes = Math.floor(this._timeSpent.toString()/1000 / 60);
-
-            if (minutes < 10)
-                this._timer.set_text("[" + this._sessionCount + "] 00:0" + minutes);
+            if (this._timeSpent < 10)
+                this._timer.set_text("[" + this._sessionCount + "] 00:0" + this._timeSpent.toString());
             else
-                this._timer.set_text("[" + this._sessionCount + "] 00:" + minutes);
+                this._timer.set_text("[" + this._sessionCount + "] 00:" + this._timeSpent.toString());
 
-            Mainloop.timeout_add_seconds(1, Lang.bind(this, this._refreshTimer));
+            Mainloop.timeout_add_seconds(60, Lang.bind(this, this._refreshTimer));
         }
+
         return false;
     }
 };
