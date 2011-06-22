@@ -1,5 +1,11 @@
-.panel-label {
-	min-width: 80px;
+.panel-session-label {
+	min-width: 20px;
+	padding: 2px 2px;
+}
+
+.panel-timer-label {
+	min-width: 50px;
+	padding: 2px 2px;
 }
 
 .break-label {

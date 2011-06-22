@@ -26,15 +26,16 @@ Indicator.prototype = {
 	_init: function() {
 		PanelMenu.SystemStatusButton.prototype._init.call(this, 'text-x-generic-symbol');
 
-		this._timer = new St.Label({ text: "[0] --:--", style_class: 'panel-label' });
+		let box = new St.BoxLayout();
+
+		this._timerLabel = new St.Label({ text: "--:--", style_class: 'panel-timer-label' });
+		this._sessionLabel = new St.Label({ text: "[0]", style_class: 'panel-session-label' });
 		this._timeSpent = 0;
 		this._timerActive = false;
 		this._sessionCount = 0;
-
-		this.actor.add_actor(this._timer);
-
+		box.add_actor(this._sessionLabel);
+		box.add_actor(this._timerLabel);
 		this._period = Schema.get_int('period');
-
 		this._switch = new PopupMenu.PopupSwitchMenuItem(_("Toggle timer"), false);
 		this._switch.connect("toggled", Lang.bind(this, this._toggleTimerState));
 		this.menu.addMenuItem(this._switch);
@@ -42,17 +43,11 @@ Indicator.prototype = {
 		this._outputSlider = new PopupMenu.PopupSliderMenuItem(0);
         this._outputSlider.connect('value-changed', Lang.bind(this, this._sliderChanged));
         this.menu.addMenuItem(this._outputSlider);
-
 		this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-
         this._dbug = new PopupMenu.PopupMenuItem(_("Pomodoro Settings"));
-        
         this._dbug.connect('activate', function(){Util.spawnCommandLine('pomodoro-config');});
         this.menu.addMenuItem(this._dbug);
-
-        this._TS = new PopupMenu.PopupMenuItem(_("timespent!"));
-        this.menu.addMenuItem(this._TS);
-
+        this.actor.set_child(box);
 	},
 
     _sliderChanged: function(slider, value) {
@@ -78,7 +73,7 @@ Indicator.prototype = {
 		else {
 			this._timeSpent += Math.round(GLib.get_monotonic_time()/TIME_DIVIDE) - this._startTime;
 			this._stopTimer();
-			//this._timer.set_text("[" + this._sessionCount + "] --:--");
+			//this._timerLabel.set_text("[" + this._sessionCount + "] --:--");
 		}
 	},
 
@@ -123,12 +118,12 @@ Indicator.prototype = {
 		if(this._timeSpent <= this._period*60 ) {
 			if(this._timerActive) {
 					this._updateTimer();
-					this._TS.label.set_text("Time: " + this._getTime());
 					Mainloop.timeout_add_seconds(1, Lang.bind(this, this._refreshTimer));
 			}
 			this._outputSlider.setValue(this._timeSpent / (this._period * 60));
 			let minutes = Math.floor(this._timeSpent / 60);
-			this._timer.set_text("[" + this._sessionCount + "] " + this._getTime());
+			this._timerLabel.set_text(this._getTime());
+			this._sessionLabel.set_text("[" + this._sessionCount + "]");
 		} else {
 			this._stopTimer();
 			this._resetTimer();
